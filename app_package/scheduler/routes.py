@@ -126,46 +126,51 @@ def receive_weather_data():
     if request_data.get('password') == config.WSH_API_PASSWORD:
 
         weather_response_dict = request_data.get('weather_response_dict')
-        # print(weather_response_dict)
 
         counter_all = 0
-        # wsh_oura_add_response_dict = {}
-        # print('Finished weather data collection! YAY!!!!!!!!')
 
         #Add response to weather history table
         for loc_id, weather_response in weather_response_dict.items():
 
             forecast = weather_response.get('forecast').get('forecastday')[0]
             
-            # weather_hist_list=[]
-            # for forecast in hist_forecast_list:
-            weather_hist_temp = {}
-            # Get location stuff
-            weather_hist_temp['city_location_name'] = weather_response.get('location').get('name')
-            weather_hist_temp['region_name'] = weather_response.get('location').get('region')
-            weather_hist_temp['country_name'] = weather_response.get('location').get('country')
-            weather_hist_temp['lat'] = weather_response.get('location').get('lat')
-            weather_hist_temp['lon'] = weather_response.get('location').get('lon')
-            weather_hist_temp['tz_id'] = weather_response.get('location').get('tz_id')
-            weather_hist_temp['location_id'] = loc_id #needs location id*****
+            #check that weather does not already exist:
+            row_exists = sess.query(Weather_history).filter_by(
+                location_id= loc_id,
+                date = forecast.get('date')).first()
             
-            #Get temperature stuff
-            weather_hist_temp['date']= forecast.get('date')
-            weather_hist_temp['maxtemp_f']= forecast.get('day').get('maxtemp_f')
-            weather_hist_temp['mintemp_f']= forecast.get('day').get('mintemp_f')
-            weather_hist_temp['avgtemp_f']= forecast.get('day').get('avgtemp_f')
-            weather_hist_temp['sunset']= forecast.get('astro').get('sunset')
-            weather_hist_temp['sunrise']= forecast.get('astro').get('sunrise')
-            # weather_hist_list.append(weather_hist_temp)
-            new = Weather_history(**weather_hist_temp)
-            sess.add(new)
-            sess.commit()
-            counter_all += 1
+            if not row_exists:
+                weather_hist_temp = {}
+                # Get location stuff
+                weather_hist_temp['city_location_name'] = weather_response.get('location').get('name')
+                weather_hist_temp['region_name'] = weather_response.get('location').get('region')
+                weather_hist_temp['country_name'] = weather_response.get('location').get('country')
+                weather_hist_temp['lat'] = weather_response.get('location').get('lat')
+                weather_hist_temp['lon'] = weather_response.get('location').get('lon')
+                weather_hist_temp['tz_id'] = weather_response.get('location').get('tz_id')
+                weather_hist_temp['location_id'] = loc_id #needs location id*****
+                
+                #Get temperature stuff
+                weather_hist_temp['date']= forecast.get('date')
+                weather_hist_temp['maxtemp_f']= forecast.get('day').get('maxtemp_f')
+                weather_hist_temp['mintemp_f']= forecast.get('day').get('mintemp_f')
+                weather_hist_temp['avgtemp_f']= forecast.get('day').get('avgtemp_f')
+                weather_hist_temp['sunset']= forecast.get('astro').get('sunset')
+                weather_hist_temp['sunrise']= forecast.get('astro').get('sunrise')
+                # weather_hist_list.append(weather_hist_temp)
+                new = Weather_history(**weather_hist_temp)
+                sess.add(new)
+                sess.commit()
+                counter_all += 1
 
+        
         #Create another row in user_oura_weather_day
-        add_user_loc_day()
+        if counter_all>0:
+            add_user_loc_day()
 
-        return jsonify({'message': f'Successfully added {counter_all} weather hist rows'})
+            return jsonify({'message': f'Successfully added {counter_all} weather hist rows'})
+        else:
+            return jsonify({'message': f'No rows added because weather for the loc_ids / dates already existed'})
     else:
         return make_response('Could not verify',
                 401, 
@@ -212,12 +217,25 @@ def add_user_loc_day():
         if isinstance(user.lat, float):
 
             #TODO: check that row doesn't already exist
+            # date_to_add = yesterday.strftime('%m/%d/%Y')
+            # user_id_to_add = user.id
 
-            new_loc_day_row_dict['row_type'] = 'scheduler'
+            user_location_day_row_exists = sess.query(User_location_day).filter_by(
+                date =yesterday.strftime('%m/%d/%Y'),
+                user_id = user.id,
+                location_id = location_id).first()
 
-            new_loc_day = User_location_day(**new_loc_day_row_dict)
-            sess.add(new_loc_day)
-            sess.commit()
+            if not user_location_day_row_exists:
+                print('*** No user_location_day_row_exists. It equals: ', user_location_day_row_exists)
+                new_loc_day_row_dict['row_type'] = 'scheduler'
+
+                new_loc_day = User_location_day(**new_loc_day_row_dict)
+                sess.add(new_loc_day)
+                sess.commit()
+                print('---> Therefore, row added')
+            else:
+                print('Row turned down because it already exits in the table')
+                print(user_location_day_row_exists)
 
 
     #1) get their user_id
