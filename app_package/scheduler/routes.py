@@ -4,14 +4,47 @@ from app_package.config import ConfigDev
 from wsh_models import sess, Users, Oura_token, Oura_sleep_descriptions,\
     Locations, Weather_history, User_location_day
 from datetime import datetime, timedelta
+import logging
+from logging.handlers import RotatingFileHandler
+import os
 
 config = ConfigDev()
+# print()
+# logs_dir = os.path.join(current_app.instance_path, 'logs')
+# print(f"**** os.path.abspath(os.path.join(os.getcwd(),'..', 'logs')) ****")
+# print(os.getcwd())
+# print(os.path.abspath(os.path.join(os.getcwd(),'..', 'logs')))
+logs_dir = os.path.abspath(os.path.join(os.getcwd(), 'logs'))
+
+#Setting up Logger
+formatter = logging.Formatter('%(asctime)s:%(name)s:%(message)s')
+formatter_terminal = logging.Formatter('%(asctime)s:%(filename)s:%(name)s:%(message)s')
+
+#initialize a logger
+logger_sched = logging.getLogger(__name__)
+logger_sched.setLevel(logging.DEBUG)
+# logger_terminal = logging.getLogger('terminal logger')
+# logger_terminal.setLevel(logging.DEBUG)
+
+#where do we store logging information
+file_handler = RotatingFileHandler(os.path.join(logs_dir,'schd_routes.log'), mode='a', maxBytes=5*1024*1024,backupCount=2)
+file_handler.setFormatter(formatter)
+
+#where the stream_handler will print
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter_terminal)
+
+# logger_sched.handlers.clear() #<--- This was useful somewhere for duplicate logs
+logger_sched.addHandler(file_handler)
+logger_sched.addHandler(stream_handler)
+
 
 sched_route = Blueprint('sched_route', __name__)
 
 @sched_route.route('/oura_tokens')
 def oura_tokens():
-    print('** api accessed ***')
+    # print('** api accessed ***')
+    logger_sched.info(f'-- Accessed oura_token endpoint ---')
     #1) verify password
     request_data = request.get_json()
     if request_data.get('password') == config.WSH_API_PASSWORD:
@@ -31,8 +64,10 @@ def oura_tokens():
             except:
                 all_user_tokens
                 oura_tokens_dict[user.id] = ['User has no Oura token']
+        logger_sched.info(f'-- Responded with a sucess ---')
         return jsonify({'message': 'success!', 'content': oura_tokens_dict})
     else:
+        logger_sched.info(f'-- Responded with 401 could not verify ---')
         return make_response('Could not verify',
             401, 
             {'WWW-Authenticate' : 'Basic realm="Login required!"'})
@@ -40,12 +75,13 @@ def oura_tokens():
 
 @sched_route.route('/receive_oura_data')
 def receive_oura_data():
-    print('*** receive_oura_data endpoint called *****')
+    # print('*** receive_oura_data endpoint called *****')
+    logger_sched.info(f'-- receive_oura_data endpoint called ---')
     request_data = request.get_json()
     if request_data.get('password') == config.WSH_API_PASSWORD:
 
         oura_response_dict = request_data.get('oura_response_dict')
-        print('oura_requesta')
+        # print('oura_requesta')
         # print(oura_response_dict)
         counter_all = 0
         wsh_oura_add_response_dict = {}
@@ -62,7 +98,8 @@ def receive_oura_data():
                     # temp_bedtime_end = oura_response.get('sleep')[0].get('bedtime_end')
                     temp_bedtime_end = session.get('bedtime_end')
                     if temp_bedtime_end not in user_sleep_end_list:# append data to oura_sleep_descriptions
-                        print('This is one session that is not in here: ', temp_bedtime_end)
+                        # print('This is one session that is not in here: ', temp_bedtime_end)
+                        logger_sched.info(f'Adding session : {temp_bedtime_end}')
                         #3a) remove any elements of oura_response.get('sleep')[0] not in Oura_sleep_descriptions.__table__
                         for element in list(session.keys()):
                             if element not in Oura_sleep_descriptions.__table__.columns.keys():
@@ -71,12 +108,14 @@ def receive_oura_data():
                         #3b) add wsh_oura_otken_id to dict
                         session['token_id'] = oura_response.get('wsh_oura_token_id')
                         session['user_id'] = user_id
-                        print('Added token id: ', session['token_id'])
+                        # print('Added token id: ', )
+                        logger_sched.info(f"Adding session for  : {session['user_id']}")
+
 
                         #3c) new oura_sleep_descript objec, then add, then commit
                         try:
-                            print('ouraresponse.sleep[0] is:', session)
-                            print('type:' , type(session))
+                            # print('ouraresponse.sleep[0] is:', session)
+                            # print('type:' , type(session))
                             new_oura_session = Oura_sleep_descriptions(**session)
                             sess.add(new_oura_session)
                             sess.commit()
@@ -92,9 +131,11 @@ def receive_oura_data():
         if counter_user == 0:
             wsh_oura_add_response_dict[user_id] = 'No new sleep sessions availible'
             
-        print(f'added {counter_all} rows to Oura_sleep_descriptions')
+        
+        logger_sched.info(f"added {counter_all} rows to Oura_sleep_descriptions")
+        logger_sched.info(f"****** Successfully finished routine!!! *****")
         return wsh_oura_add_response_dict
-
+    logger_sched.info(f"Error 401: could not verify")
     return make_response('Could not verify',
             401, 
             {'WWW-Authenticate' : 'Basic realm="Login required!"'})
@@ -102,17 +143,38 @@ def receive_oura_data():
 
 @sched_route.route('/get_locations')
 def get_locations():
-    print('*** wsh api accessed: get_Locations ***')
+    # print('*** wsh api accessed: get_Locations ***')
+    logger_sched.info(f"--- wsh06 API get_locations endpoint")
 
     request_data = request.get_json()
     if request_data.get('password') == config.WSH_API_PASSWORD:
-        print('password accepted')
+        # print('password accepted')
 
         locations = sess.query(Locations).all()
         locations_dict = {i.id: [i.lat, i.lon] for i in locations}
 
+        #TODO: CHECK THIS Code ***
+        #check weather_hist table for date and location id
+        ## --> if exists remove from locations_dict
+        loc_id_list = [loc_id for loc_id, _ in locations_dict.items()]
+
+        for loc_id in loc_id_list:
+            yesterday = datetime.today() - timedelta(days=1)
+            yesterday_formatted =  yesterday.strftime('%Y-%m-%d')
+            weather_history_records = sess.query(Weather_history).filter_by(
+                date = yesterday_formatted,
+                location_id = loc_id
+            ).first()
+            if weather_history_records:
+                logger_sched.info(f"Deleting  {loc_id} ")
+                del locations_dict[loc_id]
+                logger_sched.info(f"Location deleted")
+
+        
+        logger_sched.info(f"Returning locations_dict")
         return locations_dict
     else:
+        logger_sched.info(f"Error 401: could not verify")
         return make_response('Could not verify',
             401, 
             {'WWW-Authenticate' : 'Basic realm="Login required!"'})
@@ -121,7 +183,8 @@ def get_locations():
 
 @sched_route.route('/receive_weather_data')
 def receive_weather_data():
-    print('*** receive_weather_data endpoint called *****')
+    # print('*** receive_weather_data endpoint called *****')
+    logger_sched.info(f"--- wsh06 API recieve_weather_data endpoint")
     request_data = request.get_json()
     if request_data.get('password') == config.WSH_API_PASSWORD:
 
@@ -167,18 +230,22 @@ def receive_weather_data():
         #Create another row in user_oura_weather_day
         if counter_all>0:
             add_user_loc_day()
-
+            logger_sched.info(f"--- Succesfully added {counter_all} weather hist rows")
             return jsonify({'message': f'Successfully added {counter_all} weather hist rows'})
         else:
+            logger_sched.info(f"-- No rows added because weather for the loc_ids / dates already existed")
             return jsonify({'message': f'No rows added because weather for the loc_ids / dates already existed'})
     else:
+        logger_sched.info(f"Error 401: could not verify")
         return make_response('Could not verify',
                 401, 
                 {'WWW-Authenticate' : 'Basic realm="Login required!"'})
 
 
 def add_user_loc_day():
-    print('adding data for dashboard')
+    # print('adding data for dashboard')
+    
+    logger_sched.info(f"--- wsh06 API add_user_loc_day function: adding data for dashboard")
 
     #for each user
     users = sess.query(Users).all()
@@ -189,9 +256,7 @@ def add_user_loc_day():
         new_loc_day_row_dict['user_id'] = user.id
         location_id = None
         if isinstance(user.lat, float):
-        #     print('skipped user: ', user.email)
-        # else:
-            # pass
+
             #search for nearset locatoin
             location_id = location_exists(user)
             new_loc_day_row_dict['location_id'] = location_id
@@ -199,7 +264,8 @@ def add_user_loc_day():
             yesterday_weather_loc = sess.query(Weather_history).filter_by(
                 date = yesterday.strftime('%Y-%m-%d'),
                 location_id = location_id).first()
-            new_loc_day_row_dict['date'] =  yesterday.strftime('%m/%d/%Y')#yesterday's date from the weather hist table
+            # new_loc_day_row_dict['date'] =  yesterday.strftime('%m/%d/%Y')#yesterday's date from the weather hist table
+            new_loc_day_row_dict['date'] =  yesterday.strftime('%Y-%m-%d')#yesterday's date from the weather hist table
             new_loc_day_row_dict['avgtemp_f'] = yesterday_weather_loc.avgtemp_f#yesterday's temperature form weather hist table
         
         yesterday_oura = sess.query(Oura_sleep_descriptions).filter_by(
@@ -210,32 +276,30 @@ def add_user_loc_day():
         if yesterday_oura != None:
             new_loc_day_row_dict['score'] = yesterday_oura.score#sleep score from oura_table
         else:
-            print('This user does not have oura')
-            print(user)
+            # print('This user does not have oura')
+            logger_sched.info(f"--- This user does not have oura: {user}")
+            # print(user)
         
-        # print('locatoin_id: ', location_id)
+
         if isinstance(user.lat, float):
-
-            #TODO: check that row doesn't already exist
-            # date_to_add = yesterday.strftime('%m/%d/%Y')
-            # user_id_to_add = user.id
-
+            #verify that row for this day does not already exists
             user_location_day_row_exists = sess.query(User_location_day).filter_by(
                 date =yesterday.strftime('%m/%d/%Y'),
                 user_id = user.id,
                 location_id = location_id).first()
 
             if not user_location_day_row_exists:
-                print('*** No user_location_day_row_exists. It equals: ', user_location_day_row_exists)
+                # print('*** No user_location_day_row_exists. It equals: ', user_location_day_row_exists)
+                logger_sched.info(f"--- No user_location_day_row_exists. It equals:  {user_location_day_row_exists}")
                 new_loc_day_row_dict['row_type'] = 'scheduler'
 
                 new_loc_day = User_location_day(**new_loc_day_row_dict)
                 sess.add(new_loc_day)
                 sess.commit()
-                print('---> Therefore, row added')
+                logger_sched.info('---> Therefore, row added')
             else:
-                print('Row turned down because it already exits in the table')
-                print(user_location_day_row_exists)
+                logger_sched.info('Row turned down because it already exits in the table')
+                logger_sched.info(user_location_day_row_exists)
 
 
     #1) get their user_id
@@ -246,7 +310,7 @@ def add_user_loc_day():
     #) row_type = 'scheduler'
 
 def location_exists(user):
-    
+    logger_sched.info('-- In location_exists function --')
     min_loc_distance_difference = 1000
 
     locations_unique_list = sess.query(Locations).all()
@@ -254,12 +318,12 @@ def location_exists(user):
         lat_diff = abs(user.lat - loc.lat)
         lon_diff = abs(user.lon - loc.lon)
         loc_dist_diff = lat_diff + lon_diff
-        print('** Differences **')
-        print('lat_difference:', lat_diff)
-        print('lon_diff:', lon_diff)
+        logger_sched.info('** Differences **')
+        logger_sched.info(f'lat_difference:{lat_diff}')
+        logger_sched.info(f'lon_diff:{lon_diff}')
 
         if loc_dist_diff < min_loc_distance_difference:
-            print('-----> loc_dist_diff is less than min required')
+            logger_sched.info('-----> loc_dist_diff is less than min required')
             min_loc_distance_difference = loc_dist_diff
             location_id = loc.id
 
