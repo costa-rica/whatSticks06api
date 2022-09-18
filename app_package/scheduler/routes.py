@@ -41,6 +41,11 @@ logger_sched.addHandler(stream_handler)
 
 sched_route = Blueprint('sched_route', __name__)
 
+@sched_route.route('/are_we_running')
+def our_we_running():
+    return f"We're up and running today {datetime.today()}!"
+
+
 @sched_route.route('/oura_tokens')
 def oura_tokens():
     # print('** api accessed ***')
