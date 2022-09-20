@@ -1,6 +1,6 @@
 from flask import Blueprint
 from flask import Flask, request, jsonify, make_response, current_app
-from app_package.config import ConfigDev
+from wsh_config import ConfigDev, ConfigProd
 from wsh_models import sess, Users, Oura_token, Oura_sleep_descriptions,\
     Locations, Weather_history, User_location_day
 from datetime import datetime, timedelta
@@ -8,12 +8,14 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-config = ConfigDev()
-# print()
-# logs_dir = os.path.join(current_app.instance_path, 'logs')
-# print(f"**** os.path.abspath(os.path.join(os.getcwd(),'..', 'logs')) ****")
-# print(os.getcwd())
-# print(os.path.abspath(os.path.join(os.getcwd(),'..', 'logs')))
+
+if os.environ.get('COMPUTERNAME')=='CAPTAIN2020' or os.environ.get('COMPUTERNAME')=='NICKSURFACEPRO4':
+    config = ConfigDev()
+    print('* Development')
+else:
+    config = ConfigProd()
+    print('* ---> Configured for Production')
+
 logs_dir = os.path.abspath(os.path.join(os.getcwd(), 'logs'))
 
 #Setting up Logger
