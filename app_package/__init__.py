@@ -4,7 +4,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-config_object = ConfigDev()
+config_object = ConfigProd()
 
 logs_dir = os.path.join(os.getcwd(), 'logs')
 
@@ -41,7 +41,9 @@ logger_init.info(f'--- Starting wsh06 API ---')
 def create_app():
     app = Flask(__name__)
     app.config.from_object(config_object)
-
+    print('**', dir(app.config))
+    print('**', app.config.keys())
+    print('**', app.config.get('ENV'))
 
     from app_package.scheduler.routes import sched_route
     # from app_package.dashboard.routes import dash
